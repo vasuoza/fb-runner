@@ -1,1 +1,68 @@
+name: Collect (runner)
+# This PUBLIC repo contains only this file. It borrows free GitHub minutes, fetches your PRIVATE code with a token,
+# runs it, and saves the results back into the private repo. No strategy, code or data is stored here.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: data-sync
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Fetch the private code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.CODE_REPO }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: code
+          persist-credentials: false
+
+      - name: Install Excel library
+        run: pip install --quiet openpyxl
+
+      - name: Get the data
+        working-directory: code
+        env:
+          DATA_URL: https://x-access-token:${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/${{ vars.CODE_REPO }}.git
+          DATA_BRANCH: data
+        run: bash scripts/data_sync.sh pull
+
+      - name: Run the pipeline (output hidden because this log is public)
+        id: pipeline
+        continue-on-error: true
+        working-directory: code
+        env:
+          COINGECKO_DEMO_API_KEY: ${{ secrets.COINGECKO_DEMO_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 -m cr.run_all --data-dir data_repo > /tmp/pipeline.log 2>&1
+
+      - name: Save the data into the private repo
+        if: always()
+        working-directory: code
+        env:
+          DATA_URL: https://x-access-token:${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/${{ vars.CODE_REPO }}.git
+          DATA_BRANCH: data
+        run: bash scripts/data_sync.sh push > /dev/null 2>&1 || { echo "Saving the data failed"; exit 1; }
+
+      - name: Result
+        run: |
+          echo "pipeline: ${{ steps.pipeline.outcome }}  (details are in the Health sheet of latest.xlsx, not in this public log)"
+          [ "${{ steps.pipeline.outcome }}" = "success" ]
+
+      - name: Keep this scheduled workflow alive (GitHub pauses idle public repos after 60 days)
+        run: |
+          if [ "$(date +%u)" = "7" ] && [ "$(date +%H)" = "00" ]; then
+            date -u > heartbeat.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add heartbeat.txt && git commit -qm "heartbeat" && git push -q || true
+          fi
