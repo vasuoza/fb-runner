@@ -1,0 +1,40 @@
+name: Phone alert
+# Lives in your PRIVATE DATA repo. Turns each new file in outbox/ into a GitHub Issue that mentions you,
+# so the GitHub mobile app sends a push notification. Issues made by this built-in bot DO notify you;
+# issues made with your own token would not.
+on:
+  push:
+    paths: ["outbox/**"]
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Send a test alert"
+        default: "yes"
+permissions:
+  contents: read
+  issues: write
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Create issues for new messages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          TEST: ${{ github.event_name == 'workflow_dispatch' && 'yes' || '' }}
+        run: |
+          if [ -n "$TEST" ]; then
+            printf 'If this reached your phone, alerts work.\n\n@%s' "$OWNER" > /tmp/test.md
+            gh issue create --title "TEST ALERT" --body-file /tmp/test.md
+            exit 0
+          fi
+          git diff --name-only --diff-filter=A HEAD~1 HEAD -- outbox/ | head -5 | while read -r f; do
+            [ -f "$f" ] || continue
+            title=$(head -1 "$f" | sed 's/^# //')
+            { tail -n +3 "$f"; printf '\n\n@%s' "$OWNER"; } > /tmp/body.md
+            gh issue create --title "$title" --body-file /tmp/body.md
+          done
