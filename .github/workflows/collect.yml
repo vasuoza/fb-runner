@@ -41,6 +41,7 @@ jobs:
         working-directory: code
         env:
           COINGECKO_DEMO_API_KEY: ${{ secrets.COINGECKO_DEMO_API_KEY }}
+          CAPITAL_INR: ${{ vars.CAPITAL_INR }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 -m cr.run_all --data-dir data_repo > /tmp/pipeline.log 2>&1
